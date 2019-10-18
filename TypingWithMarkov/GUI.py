@@ -82,13 +82,13 @@ class TextInput(pygame.Surface):
 class TypeTextInput(TextInput):
 
 	def __init__(self):
-		TextInput.__init__(self, (10, 300), 30, (800, 100))
+		TextInput.__init__(self, (10, 500), 30, (800, 100))
 				
 
 	def key_pressed(self, key, ctrl, shift):
 		#print key
 
-		if key == 13: # ENTER
+		if key == 13 or key == K_SPACE: # ENTER
 			self.text = ""
 		elif key == 8: # BACKSPACE
 			if ctrl:
@@ -134,7 +134,7 @@ class TypeTextInput(TextInput):
 class Caption(pygame.Surface):
 	def __init__(self, pos, size, text, 
 				 margin, text_color = (150,150,150),
-				 background_color=(200,255,255)):
+				 background_color=(220,220,220)):
 		pygame.Surface.__init__(self,size)
 
 		
@@ -147,12 +147,16 @@ class Caption(pygame.Surface):
 	
 	def blit_on(self, surface):
 		self.fill(self.background_color)
-		#font = pygame.freetype.Font(None, self.font_size)
-		#text_surface, rect = font.render(self.text, self.text_color)
 		font = pygame.font.Font(None, 30)
 		text_surface = font.render(self.text, 1, self.text_color)
 		self.blit(text_surface, (self.margin, self.margin))
 		surface.blit(self, self.pos)
+
+	def updateColor(self, color):
+		self.text_color = color
+
+	def updateBackgroundColor(self, color):
+		self.background_color = color
 
 class Button(pygame.Surface):
 	def __init__(self, pos, size, caption="",
@@ -180,7 +184,7 @@ class Button(pygame.Surface):
 		if self.pressed:
 			self.fill(self.pressed_color)
 
-		font = pygame.freetype.Font(None, 16)
+		font = pygame.freetype.Font(None, 12) #replace none to get a font
 		text_surface, rect = font.render(self.caption, self.text_color)
 		self.blit(text_surface, (self.margin,self.margin))
 		surface.blit(self, self.pos)
@@ -195,20 +199,31 @@ class Button(pygame.Surface):
 
 class GUI(stoppablethread.StoppableThread):
 
-	def __init__(self, size):
+	def __init__(self, size, suppliedText):
 		stoppablethread.StoppableThread.__init__(self)
 		pygame.init()
 		pygame.freetype.Font.origin = True
 		pygame.freetype.Font.pad = True
 		self.screen = pygame.display.set_mode(size)
-		self.text = "This is a much longer test string that hopefully goes off the screen and wraps. Oh look it's even longer now"
+		self.time_start = time.time()
+		self.correctWords = 0
+		self.incorrectWords = 0
+		self.active = False
+		self.completed = False
+		self.tempWord1 = ""
+		self.tempWord2 = ""
+		self.wordCounter = 0
+		self.checkWord = False
+
+		#self.text = "This is a much longer test string that hopefully goes off the screen and wraps. Oh look it's even longer now"
+		self.text = suppliedText
 		self.buttons = []
 		self.captions = []
 		self.sprites = []
 		self.text_inputs = []
 		self.background_image = None
 
-		wrapper = textwrap.wrap(self.text, 50)
+		wrapper = textwrap.wrap(self.text, 75)
 		
 		self.line = []
 		self.words = []
@@ -225,7 +240,7 @@ class GUI(stoppablethread.StoppableThread):
 				text_surface = font.render(word, 1, (0,0,0))
 				renderedSizeX = text_surface.get_width()
 				renderedSizeY = text_surface.get_height()
-				self.word_caption = Caption((10 + offsetX, 50 + offsetY),
+				self.word_caption = Caption((10 + offsetX, 150 + offsetY),
 											(renderedSizeX + 10, renderedSizeY + 10),
 											word, 1, (0,0,0), (255,255,255))
 				self.captions.append(self.word_caption)
@@ -237,34 +252,19 @@ class GUI(stoppablethread.StoppableThread):
 		
 
 
-		exit_button = Button((700,10), (50,30), "EXIT", (0, 100, 200))
-		exit_button.onclick = self.exit
-		self.buttons.append(exit_button)
-		#offsetX = 0
-		#offsetY = 0
-		#for word in words:
-		#	wordSize = len(word)
-		#	wordPixels = wordSize * 17
-			
-			
-		#	self.word_caption1 = Caption((10 + offsetX, 60 + offsetY),
-		#								  30, (wordPixels, 30), word, 0, (0,0,0),
-		#								  (100, 255, 50))
-		#	self.captions.append(self.word_caption1)
-		#	offsetX += wordPixels
-		#	offsetX += 10
-		#	if offsetX > 700:
-		#		offsetY += 35
-		#		offsetX = 0
+		#exit_button = Button((700,10), (50,30), "EXIT", (0, 100, 200))
+		#exit_button.onclick = self.exit
+		#self.buttons.append(exit_button)
 
 
 
-		self.input_word = TypeTextInput()
-		self.input_word.active = True
-		self.text_inputs.append(self.input_word)
+		#self.input_word = TypeTextInput()
+		#self.input_word.active = True
+		#self.text_inputs.append(self.input_word)
 
 	def run(self):
-		wordCounter = 0
+		
+		
 		pygame.key.set_repeat(300, 50)
 		self.preloop()
 		while not self.stopped():
@@ -297,6 +297,12 @@ class GUI(stoppablethread.StoppableThread):
 				elif event.type == pygame.KEYDOWN:
 					for text_input in self.text_inputs:
 						if text_input.active:
+							#handle the start time only when typing starts on a reset prompt
+							if self.active == False:
+								self.time_start = time.time()
+							self.active = True
+							
+
 							pygame.event.pump()
 							modKeys = pygame.key.get_mods()
 							ctrl = False
@@ -305,16 +311,56 @@ class GUI(stoppablethread.StoppableThread):
 								ctrl = True
 							if (modKeys and KMOD_LSHIFT) or (modKeys and KMOD_RSHIFT):
 								shift = True
-							text_input.key_pressed(event.key, ctrl, shift)
-							if event.key == K_SPACE:
-								wordCounter += 1
+							if event.key == K_SPACE: #handle events triggered by advancing to next word
+								self.wordCounter += 1
+								self.checkWord = True
+								if self.wordCounter < len(self.words):
+									self.tempWord1 = self.words[self.wordCounter -1]
+									self.tempWord2 = self.input_word.text
+
+							if (event.key == K_r) and (ctrl == True):
+								self.reset()
+							else:
+								text_input.key_pressed(event.key, ctrl, shift)
+							
 
 				elif event.type == pygame.KEYUP:
 					pygame.event.clear()
 			
+			if self.wordCounter <= len(self.words):
+
+				if self.wordCounter == len(self.words):
+					self.active = False
+					self.completed = True
+
+				if self.wordCounter != len(self.words):
+					currentWord = self.words[self.wordCounter]
+					currentTypedWord = self.input_word.text
+					sizeOfCurrent = len(currentTypedWord)
+					if currentTypedWord != currentWord[:sizeOfCurrent]:
+						self.captions[self.wordCounter].updateColor((255,0,0))
+
+					else:
+						self.captions[self.wordCounter].updateColor((0,0,0))
+					self.captions[self.wordCounter].updateBackgroundColor((192,192,192))
+			
+				#if checkwork is true checks if the current word is correct after pressing space or enter
+				#and updates the previous word's color accordingly
+				if self.wordCounter > 0:
+					if self.checkWord == True:
+						if self.tempWord1 == self.tempWord2: #correct word
+							self.captions[self.wordCounter - 1].updateColor((0,255,0))
+							self.correctWords += 1
+						else: #incorrect word
+							self.captions[self.wordCounter - 1].updateColor((255,0,0))
+							self.incorrectWords += 1
+					self.checkWord = False
+					self.captions[self.wordCounter - 1].updateBackgroundColor((255,255,255))
+			else:
+				self.wordCounter -= 1
 				
-			currentWord = self.words[wordCounter]
-			print(currentWord)
+				
+					
 			self.inloop()
 			self.screen.fill((255,255,255))
 
@@ -333,7 +379,19 @@ class GUI(stoppablethread.StoppableThread):
 
 			pygame.display.flip()
 
-
+	def reset(self):
+		for caption in self.captions:
+			caption.updateBackgroundColor((255,255,255))
+			caption.updateColor((0,0,0))
+			self.tempWord1 = ""
+			self.tempWord2 = ""
+			self.checkWord = False
+			self.wordCounter = 0
+			self.active = False
+			self.correctWords = 0
+			self.incorrectWords = 0
+			self.time_start = 0
+			self.completed = False
 
 	def exit(self):
 		self.preexit()
